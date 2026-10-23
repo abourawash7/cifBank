@@ -1,0 +1,224 @@
+openapi: 3.0.3
+info:
+  title: CIF Bank API
+  version: 0.0.1
+  description: |
+    Current REST contract implemented by the CIF Bank Spring Boot service.
+    TPIN values are currently path parameters; this is documented for compatibility
+    but should be changed to request-body fields for production use.
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+tags:
+  - name: CIF
+  - name: TPIN
+paths:
+  /user:
+    post:
+      tags: [CIF]
+      summary: Register a new CIF
+      operationId: registerCif
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            example:
+              firstName: Noha
+              lName: Nabawy
+              iban: EG380019000500000000263180002
+              accountNumber: ACC-10001
+              phoneNumber: '+201001234567'
+              berthofDate: '1990-01-15'
+              email: noha@example.com
+              password: Bank@123
+      responses:
+        '201':
+          description: CIF registered
+          headers:
+            Location:
+              description: Relative URI containing the generated CIF identifier
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerResponse'
+        '400':
+          description: Request validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Email, account number, or IBAN already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+  /user/{id}/{tpin}:
+    put:
+      tags: [TPIN]
+      summary: Set a TPIN for a CIF
+      operationId: setTpin
+      parameters:
+        - $ref: '#/components/parameters/CustomerId'
+        - $ref: '#/components/parameters/Tpin'
+      responses:
+        '200':
+          description: TPIN set
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerResponse'
+        '404':
+          description: CIF not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+  /auth/{customerId}/{tpin}:
+    post:
+      tags: [TPIN]
+      summary: Authenticate a CIF and TPIN
+      description: The third consecutive failure stores a failed-attempt count of three and immediately returns a blocked result.
+      operationId: authenticateCif
+      parameters:
+        - $ref: '#/components/parameters/CustomerIdNamed'
+        - $ref: '#/components/parameters/Tpin'
+      responses:
+        '200':
+          description: Authentication result
+          content:
+            text/plain:
+              schema:
+                type: string
+                enum: [Authentication successful]
+        '401':
+          description: First or second invalid TPIN attempt
+          content:
+            text/plain:
+              schema:
+                type: string
+                enum: [Invalid CIF or TPIN]
+        '423':
+          description: Third failed attempt or CIF already blocked
+          content:
+            text/plain:
+              schema:
+                type: string
+                enum: [CIF is blocked]
+    put:
+      tags: [TPIN]
+      summary: Reset TPIN and unblock a CIF
+      description: |
+        Current implementation ignores the body value and only re-saves the existing
+        path TPIN when it matches. It does not yet support assigning a different TPIN.
+      operationId: resetTpin
+      security:
+        - basicAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CustomerIdNamed'
+        - $ref: '#/components/parameters/Tpin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetTpinRequest'
+      responses:
+        '200':
+          description: Current reset result; body may be empty when the path TPIN does not match
+          content:
+            text/plain:
+              schema:
+                type: string
+                nullable: true
+                example: Tpin Update Sucess
+        '401':
+          description: Missing or invalid HTTP Basic credentials
+components:
+  securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic
+  parameters:
+    CustomerId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    CustomerIdNamed:
+      name: customerId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    Tpin:
+      name: tpin
+      in: path
+      required: true
+      description: TPIN path parameter used by the current implementation.
+      schema:
+        type: string
+        minLength: 1
+  schemas:
+    RegisterRequest:
+      type: object
+      required: [firstName, lName, iban, accountNumber, phoneNumber, berthofDate, email, password]
+      properties:
+        firstName:
+          type: string
+        lName:
+          type: string
+        iban:
+          type: string
+        accountNumber:
+          type: string
+        phoneNumber:
+          type: string
+        berthofDate:
+          type: string
+          format: date
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+    ResetTpinRequest:
+      type: object
+      required: [tPin]
+      properties:
+        tPin:
+          type: integer
+          example: 5678
+    CustomerResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        uuid:
+          type: string
+          format: uuid
+    ApiError:
+      type: object
+      properties:
+        status:
+          type: integer
+        message:
+          type: string
+        path:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        errors:
+          type: object
+          additionalProperties:
+            type: string
+

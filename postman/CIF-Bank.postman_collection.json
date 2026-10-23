@@ -1,0 +1,225 @@
+{
+  "info": {
+    "_postman_id": "497a7e3f-69c4-4e91-8ef9-f347669af98d",
+    "name": "CIF Bank",
+    "description": "Runs directly against http://localhost:8080 with no Postman environment required. Registration creates a unique email and captures the returned customer UUID for the following requests. The Reset TPIN request documents a known implementation limitation: the body value is ignored and the existing path TPIN is re-saved.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "01 - Register CIF",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.collectionVariables.set('email', 'cif-' + Date.now() + '@example.com');"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status is 201', function () { pm.response.to.have.status(201); });",
+              "pm.test('Registration returns a CIF UUID', function () {",
+              "  const body = pm.response.json();",
+              "  pm.expect(body.message).to.eql('Customer registered successfully');",
+              "  pm.expect(body.uuid).to.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);",
+              "  pm.collectionVariables.set('customerId', body.uuid);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"firstName\": \"Noha\",\n  \"lName\": \"Nabawy\",\n  \"iban\": \"EG380019000500000000263180002\",\n  \"accountNumber\": \"ACC-{{$timestamp}}\",\n  \"phoneNumber\": \"+201001234567\",\n  \"berthofDate\": \"1990-01-15\",\n  \"email\": \"{{email}}\",\n  \"password\": \"Bank@123\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:8080/user",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8080",
+          "path": ["user"]
+        },
+        "description": "Registers a customer and stores the returned UUID in the customerId collection variable."
+      }
+    },
+    {
+      "name": "02 - Set TPIN",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('TPIN update response refers to the registered CIF', function () {",
+              "  const body = pm.response.json();",
+              "  pm.expect(body.uuid).to.eql(pm.collectionVariables.get('customerId'));",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PUT",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:8080/user/{{customerId}}/1234",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8080",
+          "path": ["user", "{{customerId}}", "1234"]
+        },
+        "description": "Sets the initial TPIN. The current API passes the TPIN in the URL."
+      }
+    },
+    {
+      "name": "03 - Authenticate Successfully",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Authentication succeeds', function () { pm.expect(pm.response.text()).to.eql('Authentication successful'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:8080/auth/{{customerId}}/1234",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8080",
+          "path": ["auth", "{{customerId}}", "1234"]
+        }
+      }
+    },
+    {
+      "name": "04 - Blocking Flow",
+      "item": [
+        {
+          "name": "Failed Authentication 1",
+          "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('First failure is recorded', function () { pm.response.to.have.status(401); pm.expect(pm.response.text()).to.eql('Invalid CIF or TPIN'); });"]}}],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {"raw": "http://localhost:8080/auth/{{customerId}}/9999", "protocol": "http", "host": ["localhost"], "port": "8080", "path": ["auth", "{{customerId}}", "9999"]}
+          }
+        },
+        {
+          "name": "Failed Authentication 2",
+          "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Second failure is recorded', function () { pm.response.to.have.status(401); pm.expect(pm.response.text()).to.eql('Invalid CIF or TPIN'); });"]}}],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {"raw": "http://localhost:8080/auth/{{customerId}}/9999", "protocol": "http", "host": ["localhost"], "port": "8080", "path": ["auth", "{{customerId}}", "9999"]}
+          }
+        },
+        {
+          "name": "Failed Authentication 3",
+          "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Third failure blocks immediately', function () { pm.response.to.have.status(423); pm.expect(pm.response.text()).to.eql('CIF is blocked'); });"]}}],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {"raw": "http://localhost:8080/auth/{{customerId}}/9999", "protocol": "http", "host": ["localhost"], "port": "8080", "path": ["auth", "{{customerId}}", "9999"]}
+          }
+        },
+        {
+          "name": "Blocked Authentication",
+          "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('CIF remains blocked', function () { pm.response.to.have.status(423); pm.expect(pm.response.text()).to.eql('CIF is blocked'); });"]}}],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {"raw": "http://localhost:8080/auth/{{customerId}}/1234", "protocol": "http", "host": ["localhost"], "port": "8080", "path": ["auth", "{{customerId}}", "1234"]}
+          }
+        }
+      ]
+    },
+    {
+      "name": "05 - Reset TPIN (Current Implementation)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('CIF is unblocked', function () { pm.expect(pm.response.text()).to.eql('Tpin Update Sucess'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "basic",
+          "basic": [
+            {"key": "username", "value": "{{email}}", "type": "string"},
+            {"key": "password", "value": "Bank@123", "type": "string"}
+          ]
+        },
+        "method": "PUT",
+        "header": [{"key": "Content-Type", "value": "application/json"}],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"tPin\": 5678\n}"
+        },
+        "url": {
+          "raw": "http://localhost:8080/auth/{{customerId}}/1234",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8080",
+          "path": ["auth", "{{customerId}}", "1234"]
+        },
+        "description": "Known limitation: the body value 5678 is ignored. The current service checks and re-saves the existing path TPIN 1234, then resets failed attempts."
+      }
+    },
+    {
+      "name": "06 - Verify Unblocked with Current TPIN",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Current TPIN still succeeds after reset', function () { pm.expect(pm.response.text()).to.eql('Authentication successful'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:8080/auth/{{customerId}}/1234",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8080",
+          "path": ["auth", "{{customerId}}", "1234"]
+        }
+      }
+    }
+  ],
+  "variable": [
+    {"key": "email", "value": ""},
+    {"key": "customerId", "value": ""}
+  ]
+}
